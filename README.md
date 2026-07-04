@@ -24,7 +24,7 @@ A small **Python + Qt6** desktop application that helps you discover English and
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your‑username/super-diccionario.git
+   git clone https://github.com/DonMilo-22/Super-Diccionario.git
    cd super-diccionario
    ```
 
