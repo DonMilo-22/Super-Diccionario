@@ -1,33 +1,33 @@
-import re
 import sys
 
 from pynput import keyboard
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QGuiApplication
+from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QCursor, QGuiApplication, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
+    QStyle,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
 from capture import CaptureOverlay
-from dictionary import english, ends_with, generate_suggestions, spanish
-from ocr import OCRUnavailableError, read_text
-from platform_utils import get_foreground_target, type_text
+from dialogs import HistoryDialog, SettingsDialog
+from dictionary import auto_suggestions, english, ends_with, generate_suggestions, spanish
+from ocr import OCRUnavailableError, correction_candidates
+from platform_utils import get_foreground_target, set_autostart, target_name, type_text
+from settings import apply_profile, load_settings, save_settings
+from stats import load_stats, record_word, start_session, toggle_favorite
 from used_words import add_used, clear_used
-
-
-def normalize_ocr_text(text):
-    text = re.sub(r"\s+", "", text or "")
-    text = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", "", text)
-    return text.upper()
 
 
 class WordFinder(QWidget):
@@ -35,200 +35,135 @@ class WordFinder(QWidget):
 
     def __init__(self):
         super().__init__()
-
+        self.settings = load_settings()
         self.last_target = None
         self.capture_overlay = None
-        self.current_mode = "start"
+        self.result_words = []
+        self.session_app_name = ""
 
         self.setWindowTitle("Word Helper")
-        self.resize(460, 520)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
+        self.resize(390, 460)
 
         self.apply_theme()
         self.build_ui()
         self.connect_events()
+        self.setup_numeric_shortcuts()
         self.capture_requested.connect(self.start_capture)
-        self.move_to_bottom_right()
+        self.refresh_stats()
 
     def apply_theme(self):
-        self.setStyleSheet(
-            """
-            QWidget {
-                background-color: #1A1A1D;
-                color: #F5F5F7;
-                font-family: Helvetica, Arial, sans-serif;
-                font-size: 13px;
-            }
-
-            QLabel {
-                color: #F5F5F7;
-                font-size: 14px;
-                font-weight: bold;
-            }
-
-            QLineEdit {
-                background-color: #25252B;
-                border: 2px solid #6C63FF;
-                border-radius: 14px;
-                padding: 10px;
-                color: white;
-                font-size: 15px;
-                font-weight: bold;
-            }
-
-            QPushButton {
-                background-color: #6C63FF;
-                color: white;
-                border: none;
-                border-radius: 14px;
-                padding: 10px;
-                font-weight: bold;
-            }
-
-            QPushButton:hover {
-                background-color: #7A72FF;
-            }
-
-            QPushButton:pressed {
-                background-color: #5A50E5;
-            }
-
-            QListWidget {
-                background-color: #25252B;
-                border: 1px solid #333340;
-                border-radius: 16px;
-                padding: 6px;
-                outline: none;
-            }
-
-            QListWidget::item {
-                background-color: #2D2D35;
-                padding: 12px;
-                margin: 4px;
-                border-radius: 8px;
-                border-left: 4px solid #6C63FF;
-            }
-
-            QListWidget::item:hover {
-                background-color: #393944;
-            }
-
-            QListWidget::item:selected {
-                background-color: #6C63FF;
-                color: white;
-            }
-
-            QScrollBar:vertical {
-                background: transparent;
-                width: 10px;
-                margin: 0;
-            }
-
-            QScrollBar::handle:vertical {
-                background: #6C63FF;
-                border-radius: 5px;
-                min-height: 20px;
-            }
-
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0;
-            }
-            """
-        )
+        self.setStyleSheet("""
+            QWidget { background:#17171A; color:#F4F4F6; font-family:Arial,sans-serif; font-size:13px; }
+            QLineEdit, QComboBox { background:#242428; border:1px solid #393940; border-radius:10px; padding:8px; }
+            QPushButton { background:#2D2D33; border:1px solid #3A3A42; border-radius:10px; padding:8px; font-weight:600; }
+            QPushButton:hover { background:#3A3A42; }
+            QListWidget { background:#202024; border:1px solid #34343A; border-radius:12px; padding:5px; outline:none; }
+            QListWidget::item { padding:10px; margin:2px; border-radius:8px; }
+            QListWidget::item:hover { background:#303038; }
+            QListWidget::item:selected { background:#5753D7; }
+            QLabel#muted { color:#9A9AA6; font-size:11px; }
+        """)
 
     def build_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
-        layout.addWidget(QLabel("✨ OCR"))
+        top = QHBoxLayout()
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems(["Roblox", "English", "Español", "Ambos"])
+        self.profile_combo.setCurrentText(self.settings.get("profile", "Roblox"))
+
+        self.settings_button = QPushButton("⚙")
+        self.settings_button.setFixedWidth(42)
+        self.history_button = QPushButton("Historial")
+        top.addWidget(self.profile_combo, 1)
+        top.addWidget(self.history_button)
+        top.addWidget(self.settings_button)
+        layout.addLayout(top)
 
         self.input_box = QLineEdit()
-        self.input_box.setPlaceholderText("Escribe letras o usa Alt + Espacio...")
+        self.input_box.setPlaceholderText("Alt + Espacio para capturar, o escribe aquí…")
         layout.addWidget(self.input_box)
 
-        button_layout = QHBoxLayout()
+        controls = QHBoxLayout()
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["auto", "start", "end"])
+        self.mode_combo.setCurrentText(self.settings.get("search_mode", "auto"))
 
-        self.start_button = QPushButton("Inicio")
-        self.end_button = QPushButton("Final")
-        self.reset_button = QPushButton("Reiniciar")
-        self.capture_button = QPushButton("Capturar")
+        self.language_combo = QComboBox()
+        self.language_combo.addItems(["english", "spanish", "both"])
+        self.language_combo.setCurrentText(self.settings.get("language", "both"))
 
-        self.capture_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #FF5CA8;
-                color: white;
-                border: none;
-                border-radius: 14px;
-                padding: 10px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #FF71B5;
-            }
-            """
-        )
+        self.new_session_button = QPushButton("Nueva partida")
+        controls.addWidget(self.mode_combo)
+        controls.addWidget(self.language_combo)
+        controls.addWidget(self.new_session_button)
+        layout.addLayout(controls)
 
-        for button in (
-            self.start_button,
-            self.end_button,
-            self.reset_button,
-            self.capture_button,
-        ):
-            button_layout.addWidget(button)
+        self.results = QListWidget()
+        self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        layout.addWidget(self.results, 1)
 
-        layout.addLayout(button_layout)
-
-        self.help_label = QLabel(
-            "Haz clic en una palabra para escribirla en la ventana anterior y marcarla como usada."
-        )
-        self.help_label.setWordWrap(True)
-        self.help_label.setStyleSheet(
-            "color: #B9B9C4; font-size: 12px; font-weight: normal; padding: 4px;"
-        )
-        layout.addWidget(self.help_label)
-
-        titles_layout = QHBoxLayout()
-        titles_layout.addWidget(QLabel("🇺🇸 English"))
-        titles_layout.addWidget(QLabel("🇪🇸 Español"))
-        layout.addLayout(titles_layout)
-
-        results_layout = QHBoxLayout()
-        self.english_list = QListWidget()
-        self.spanish_list = QListWidget()
-
-        font = QFont()
-        font.setPointSize(20)
-        font.setBold(True)
-        self.english_list.setFont(font)
-        self.spanish_list.setFont(font)
-
-        results_layout.addWidget(self.english_list)
-        results_layout.addWidget(self.spanish_list)
-        layout.addLayout(results_layout)
-
-        self.status_label = QLabel("Alt + Espacio: capturar texto")
-        self.status_label.setStyleSheet(
-            "color: #8D8D99; font-size: 11px; font-weight: normal;"
-        )
+        self.status_label = QLabel("Alt + Espacio · 1–9 para elegir · clic derecho para favorito")
+        self.status_label.setObjectName("muted")
+        self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
-    def connect_events(self):
-        self.input_box.returnPressed.connect(self.search_start)
-        self.start_button.clicked.connect(self.search_start)
-        self.end_button.clicked.connect(self.search_end)
-        self.reset_button.clicked.connect(self.reset_used_words)
-        self.capture_button.clicked.connect(lambda: self.start_capture(None))
+        self.stats_label = QLabel("")
+        self.stats_label.setObjectName("muted")
+        layout.addWidget(self.stats_label)
 
-        self.english_list.itemClicked.connect(self.choose_word)
-        self.spanish_list.itemClicked.connect(self.choose_word)
+    def connect_events(self):
+        self.input_box.returnPressed.connect(self.search)
+        self.results.itemClicked.connect(self.choose_item)
+        self.results.customContextMenuRequested.connect(self.open_result_menu)
+        self.settings_button.clicked.connect(self.open_settings)
+        self.history_button.clicked.connect(self.open_history)
+        self.new_session_button.clicked.connect(lambda: self.new_session(True))
+        self.profile_combo.currentTextChanged.connect(self.profile_changed)
+        self.mode_combo.currentTextChanged.connect(self.quick_setting_changed)
+        self.language_combo.currentTextChanged.connect(self.quick_setting_changed)
+
+    def setup_numeric_shortcuts(self):
+        self.number_shortcuts = []
+        for number in range(1, 10):
+            shortcut = QShortcut(QKeySequence(str(number)), self)
+            shortcut.activated.connect(lambda n=number: self.choose_number(n))
+            self.number_shortcuts.append(shortcut)
+
+    def profile_changed(self, profile):
+        self.settings = apply_profile(self.settings, profile)
+        self.mode_combo.setCurrentText(self.settings["search_mode"])
+        self.language_combo.setCurrentText(self.settings["language"])
+        save_settings(self.settings)
+
+    def quick_setting_changed(self):
+        self.settings["search_mode"] = self.mode_combo.currentText()
+        self.settings["language"] = self.language_combo.currentText()
+        save_settings(self.settings)
 
     def start_capture(self, target=None):
         if target:
             self.last_target = target
+            self.handle_session_target(target)
 
         self.hide()
-        QTimer.singleShot(120, self.open_capture_overlay)
+        QTimer.singleShot(100, self.open_capture_overlay)
+
+    def handle_session_target(self, target):
+        name = target_name(target)
+        if not name:
+            return
+
+        is_roblox = "roblox" in name.lower()
+        previous_was_roblox = "roblox" in self.session_app_name.lower()
+
+        if is_roblox and not previous_was_roblox and self.settings.get("reset_on_new_session", True):
+            self.new_session(True, show_message=False)
+
+        self.session_app_name = name
 
     def open_capture_overlay(self):
         self.capture_overlay = CaptureOverlay()
@@ -238,147 +173,237 @@ class WordFinder(QWidget):
 
     def capture_cancelled(self):
         self.capture_overlay = None
-        self.show_and_focus()
+        self.show_normal()
         self.status_label.setText("Captura cancelada.")
 
     def process_capture(self, capture_file):
         self.capture_overlay = None
-
         try:
-            text = read_text(capture_file)
+            from ocr import read_text
+            raw_text = read_text(capture_file)
         except OCRUnavailableError as exc:
-            self.show_and_focus()
+            self.show_normal()
             QMessageBox.warning(self, "OCR no disponible", str(exc))
             return
         except Exception as exc:
-            self.show_and_focus()
-            QMessageBox.warning(
-                self,
-                "Error de OCR",
-                f"No se pudo leer la captura.\n\n{exc}",
-            )
+            self.show_normal()
+            QMessageBox.warning(self, "Error de OCR", str(exc))
             return
 
-        text = normalize_ocr_text(text)
-        self.input_box.setText(text)
+        candidates = correction_candidates(raw_text)
+        fragment = self.pick_best_ocr_candidate(candidates)
 
-        self.show_and_focus()
-
-        if not text:
-            self.english_list.clear()
-            self.spanish_list.clear()
-            self.status_label.setText("No se detectó texto en la captura.")
+        if not fragment:
+            self.show_normal()
+            self.results.clear()
+            self.status_label.setText("No se detectó texto útil.")
             return
 
-        self.search_start()
-        self.status_label.setText(f'OCR detectó: "{text}"')
+        self.input_box.setText(fragment)
+        self.search(show_after=True)
+        self.status_label.setText(f'OCR: "{fragment}" · {len(self.result_words)} opciones')
 
-    def show_and_focus(self):
+    def pick_best_ocr_candidate(self, candidates):
+        best = ""
+        best_count = -1
+        for candidate in candidates:
+            count = len(self.find_words(candidate, limit=20))
+            if count > best_count:
+                best = candidate
+                best_count = count
+        return best
+
+    def search_options(self):
+        return {
+            "min_length": int(self.settings.get("min_length", 1)),
+            "max_length": int(self.settings.get("max_length", 32)),
+            "exclude_proper": bool(self.settings.get("exclude_proper_names", False)),
+            "common_first": bool(self.settings.get("common_words_first", True)),
+        }
+
+    def selected_dictionaries(self):
+        language = self.language_combo.currentText()
+        if language == "english":
+            return [("🇺🇸", english)]
+        if language == "spanish":
+            return [("🇪🇸", spanish)]
+        return [("🇺🇸", english), ("🇪🇸", spanish)]
+
+    def find_words(self, fragment, limit=9):
+        mode = self.mode_combo.currentText()
+        options = self.search_options()
+        combined = []
+        seen = set()
+
+        for flag, words in self.selected_dictionaries():
+            if mode == "start":
+                matches = generate_suggestions(fragment, words, limit=limit, **options)
+            elif mode == "end":
+                matches = ends_with(fragment, words, limit=limit, **options)
+            else:
+                matches = auto_suggestions(fragment, words, limit=limit, **options)
+
+            for word in matches:
+                key = word.lower()
+                if key not in seen:
+                    combined.append((word, flag))
+                    seen.add(key)
+
+        return combined[:limit]
+
+    def search(self, show_after=False):
+        fragment = self.input_box.text().strip()
+        if not fragment:
+            return
+
+        matches = self.find_words(fragment, limit=9)
+        self.result_words = [word for word, _flag in matches]
+        self.results.clear()
+
+        stats = load_stats()
+        favorites = set(stats.get("favorites", []))
+
+        for index, (word, flag) in enumerate(matches, start=1):
+            star = "★ " if word.lower() in favorites else ""
+            item = QListWidgetItem(f"{index}   {star}{word}  {flag}")
+            item.setData(Qt.ItemDataRole.UserRole, word)
+            item.setToolTip("Clic para escribir · clic derecho para favorito")
+            self.results.addItem(item)
+
+        if len(matches) == 1 and self.settings.get("auto_select_single", False):
+            QTimer.singleShot(100, lambda: self.choose_word(matches[0][0]))
+            return
+
+        if show_after:
+            if self.settings.get("compact_overlay", True):
+                self.show_compact()
+            else:
+                self.show_normal()
+
+        self.status_label.setText(f"{len(matches)} sugerencias · 1–9 para elegir")
+
+    def show_compact(self):
+        self.resize(350, min(430, 170 + self.results.count() * 46))
+        cursor = QCursor.pos()
+        screen = QGuiApplication.screenAt(cursor) or QGuiApplication.primaryScreen()
+        area = screen.availableGeometry()
+
+        x = min(cursor.x() + 18, area.right() - self.width())
+        y = min(cursor.y() + 18, area.bottom() - self.height())
+        self.move(QPoint(max(area.left(), x), max(area.top(), y)))
         self.show()
         self.raise_()
         self.activateWindow()
-        self.resize(460, 520)
-        self.move_to_bottom_right()
 
-    def move_to_bottom_right(self):
-        screen = QGuiApplication.screenAt(self.pos()) or QGuiApplication.primaryScreen()
-        geometry = screen.availableGeometry()
+    def show_normal(self):
+        self.resize(390, 460)
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        self.move(screen.right() - self.width() - 14, screen.bottom() - self.height() - 14)
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
-        x = geometry.x() + geometry.width() - self.width() - 10
-        y = geometry.y() + geometry.height() - self.height() - 10
-        self.move(x, y)
+    def choose_number(self, number):
+        if 1 <= number <= len(self.result_words):
+            self.choose_word(self.result_words[number - 1])
 
-    def add_result_item(self, list_widget, word):
-        item = QListWidgetItem(word)
-        item.setSizeHint(QSize(0, 42))
-        list_widget.addItem(item)
+    def choose_item(self, item):
+        word = item.data(Qt.ItemDataRole.UserRole)
+        if word:
+            self.choose_word(word)
 
-    def populate_results(self, english_results, spanish_results):
-        self.english_list.clear()
-        self.spanish_list.clear()
-
-        for word in english_results:
-            self.add_result_item(self.english_list, word)
-
-        for word in spanish_results:
-            self.add_result_item(self.spanish_list, word)
-
-        total = len(english_results) + len(spanish_results)
-        self.status_label.setText(f"{total} sugerencias encontradas.")
-
-    def search_start(self):
-        text = self.input_box.text().strip()
-        if not text:
-            return
-
-        self.current_mode = "start"
-        self.populate_results(
-            generate_suggestions(text, english),
-            generate_suggestions(text, spanish),
-        )
-
-    def search_end(self):
-        text = self.input_box.text().strip()
-        if not text:
-            return
-
-        self.current_mode = "end"
-        self.populate_results(
-            ends_with(text, english)[:20],
-            ends_with(text, spanish)[:20],
-        )
-
-    def choose_word(self, item):
-        word = item.text().strip()
-        if not word:
-            return
-
+    def choose_word(self, word):
         add_used(word)
-
-        for list_widget in (self.english_list, self.spanish_list):
-            for row in range(list_widget.count() - 1, -1, -1):
-                if list_widget.item(row).text().lower() == word.lower():
-                    list_widget.takeItem(row)
+        record_word(word)
+        self.refresh_stats()
 
         target = self.last_target
-        self.status_label.setText(f'Escribiendo "{word}"...')
         self.hide()
 
+        if self.settings.get("sound_feedback", True):
+            QApplication.beep()
+
         QTimer.singleShot(
-            120,
-            lambda selected=word, destination=target: self.type_selected_word(
-                selected,
-                destination,
-            ),
+            90,
+            lambda: self.type_selected_word(word, target),
         )
 
     def type_selected_word(self, word, target):
         try:
-            type_text(word, target)
+            type_text(
+                word,
+                target,
+                press_enter=bool(self.settings.get("auto_enter", False)),
+            )
         except Exception as exc:
             QGuiApplication.clipboard().setText(word)
-            self.show_and_focus()
+            self.show_normal()
             QMessageBox.warning(
                 self,
                 "No se pudo escribir automáticamente",
-                (
-                    f'La palabra "{word}" ya fue marcada como usada y se copió '
-                    "al portapapeles.\n\n"
-                    "En macOS revisa el permiso de Accesibilidad para Word Helper.\n"
-                    f"Detalle: {exc}"
-                ),
+                f'"{word}" se copió al portapapeles.\n\n{exc}',
             )
 
-    def reset_used_words(self):
-        clear_used()
-        self.english_list.clear()
-        self.spanish_list.clear()
-        self.status_label.setText("Lista de palabras usadas reiniciada.")
+    def open_result_menu(self, position):
+        item = self.results.itemAt(position)
+        if not item:
+            return
+        word = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        favorite_action = menu.addAction("★ Agregar/quitar favorito")
+        selected = menu.exec(self.results.mapToGlobal(position))
+        if selected == favorite_action:
+            toggle_favorite(word)
+            self.search()
+
+    def open_settings(self):
+        dialog = SettingsDialog(self.settings, self)
+        if dialog.exec():
+            old_hotkey = self.settings.get("hotkey")
+            old_autostart = self.settings.get("start_with_system", False)
+            self.settings = dialog.values()
+            save_settings(self.settings)
+
+            self.profile_combo.setCurrentText(self.settings["profile"])
+            self.mode_combo.setCurrentText(self.settings["search_mode"])
+            self.language_combo.setCurrentText(self.settings["language"])
+
+            if old_autostart != self.settings.get("start_with_system", False):
+                try:
+                    set_autostart(self.settings["start_with_system"])
+                except Exception as exc:
+                    QMessageBox.warning(self, "Inicio automático", str(exc))
+
+            if old_hotkey != self.settings.get("hotkey"):
+                restart_global_hotkey(self.settings["hotkey"])
+
+    def open_history(self):
+        dialog = HistoryDialog(self)
+        dialog.exec()
+        if self.input_box.text().strip():
+            self.search()
+
+    def new_session(self, clear_words=True, show_message=True):
+        if clear_words:
+            clear_used()
+        start_session()
+        self.results.clear()
+        self.result_words = []
+        self.refresh_stats()
+        if show_message:
+            self.status_label.setText("Nueva partida iniciada. Palabras usadas reiniciadas.")
+
+    def refresh_stats(self):
+        stats = load_stats()
+        self.stats_label.setText(
+            f'Sesión: {stats.get("session_words", 0)} palabras · '
+            f'Total: {stats.get("total_words", 0)} · '
+            f'Sesiones: {stats.get("sessions", 0)}'
+        )
 
     def closeEvent(self, event):
-        if listener:
-            listener.stop()
-        event.accept()
+        event.ignore()
+        self.hide()
 
 
 window = None
@@ -386,35 +411,74 @@ listener = None
 
 
 def on_activate():
-    global window
-
     if window:
         target = get_foreground_target()
         window.capture_requested.emit(target)
 
 
-def for_canonical(function):
-    return lambda key: function(listener.canonical(key))
+def restart_global_hotkey(hotkey_text=None):
+    global listener
+    if listener:
+        listener.stop()
+        listener = None
+
+    hotkey_text = hotkey_text or load_settings().get("hotkey", "<alt>+<space>")
+    hotkey = keyboard.HotKey(keyboard.HotKey.parse(hotkey_text), on_activate)
+
+    def canonical(function):
+        return lambda key: function(listener.canonical(key))
+
+    listener = keyboard.Listener(
+        on_press=canonical(hotkey.press),
+        on_release=canonical(hotkey.release),
+    )
+    listener.start()
+
+
+def create_tray(app):
+    tray = QSystemTrayIcon(app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), app)
+    tray.setToolTip("Word Helper")
+
+    menu = QMenu()
+    show_action = QAction("Abrir Word Helper", menu)
+    capture_action = QAction("Capturar ahora", menu)
+    session_action = QAction("Nueva partida", menu)
+    quit_action = QAction("Salir", menu)
+
+    show_action.triggered.connect(window.show_normal)
+    capture_action.triggered.connect(lambda: window.start_capture(get_foreground_target()))
+    session_action.triggered.connect(lambda: window.new_session(True))
+    quit_action.triggered.connect(app.quit)
+
+    menu.addAction(show_action)
+    menu.addAction(capture_action)
+    menu.addAction(session_action)
+    menu.addSeparator()
+    menu.addAction(quit_action)
+
+    tray.setContextMenu(menu)
+    tray.activated.connect(
+        lambda reason: window.show_normal()
+        if reason == QSystemTrayIcon.ActivationReason.Trigger
+        else None
+    )
+    tray.show()
+    return tray
 
 
 def main():
-    global window, listener
+    global window
 
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
 
     window = WordFinder()
-    window.show()
+    window.hide()
+    start_session()
 
-    hotkey = keyboard.HotKey(
-        keyboard.HotKey.parse("<alt>+<space>"),
-        on_activate,
-    )
-
-    listener = keyboard.Listener(
-        on_press=for_canonical(hotkey.press),
-        on_release=for_canonical(hotkey.release),
-    )
-    listener.start()
+    restart_global_hotkey(window.settings.get("hotkey"))
+    tray = create_tray(app)
+    app._wordhelper_tray = tray
 
     sys.exit(app.exec())
 
