@@ -28,6 +28,17 @@ def extract_requirement(text):
     words = extract_words(text)
     if not words:
         return ""
+
+    trailing_letters = []
+    for token in reversed(words):
+        if len(token) == 1:
+            trailing_letters.append(token)
+        else:
+            break
+
+    if len(trailing_letters) >= 2:
+        return "".join(reversed(trailing_letters)).lower()
+
     return words[-1].lower()
 
 
@@ -178,14 +189,14 @@ class AutomaticChainEngine(QObject):
         now = time.monotonic()
 
         if self.waiting_for_turn_change:
-            changed = (
-                opponent_word != self.current_opponent
-                or requirement != self.current_requirement
-            )
-            if changed:
+            if opponent_word != self.current_opponent:
                 self.waiting_for_turn_change = False
                 self.queue = []
                 self.last_reply = ""
+            elif requirement != self.current_requirement:
+                # The game changed the prompt after our answer. Treat that as
+                # acceptance and wait for the opponent's next complete word.
+                return
             else:
                 retry_ms = int(self.settings.get("auto_retry_ms", 1800))
                 if (now - self.sent_at) * 1000 >= retry_ms:
