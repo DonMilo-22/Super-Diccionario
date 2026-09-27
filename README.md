@@ -1,54 +1,83 @@
 # Word Helper
 
-Word Helper is a small desktop application for finding English and Spanish words from a text fragment. It is designed for fast use while another application or game is open.
+Word Helper is a fast desktop word assistant built for games and any workflow where you need to capture a text fragment, find a matching word, and type it back into the app you were using.
 
-## What it does
+## New workflow
 
-- Global shortcut: **Alt + Space**
-- Cross-platform screen region capture with Qt
-- OCR:
-  - macOS: Apple Vision
-  - Windows: Tesseract OCR
-- English and Spanish word suggestions
-- Search by beginning or ending of a word
-- Click a suggestion to:
-  1. mark it as used,
-  2. return focus to the previous window,
-  3. type the selected word automatically
-- Used words are saved and excluded from future suggestions
-- Reset button to clear the used-word history
-- Always-on-top desktop interface
+1. Keep Word Helper running in the system tray.
+2. In Roblox or another app, press **Alt + Space**.
+3. Select the text fragment on screen.
+4. Word Helper runs OCR and opens a compact overlay near the cursor.
+5. Choose a suggestion by clicking it or pressing **1–9**.
+6. Word Helper returns to the previous app, types the word, and optionally presses Enter.
+7. The word is stored as used and is hidden from future suggestions.
 
-## Quick install
+## Highlights
+
+- Cross-platform support for Windows and macOS.
+- Compact overlay instead of a large always-visible window.
+- System tray mode.
+- Keyboard selection with **1–9**.
+- Click-to-type back into Roblox or the previous active window.
+- Optional automatic **Enter** after typing.
+- Optional instant selection when only one valid word exists.
+- Automatic search mode that checks both word beginnings and endings.
+- English, Spanish, or combined results.
+- Profiles for Roblox, English, Spanish, and mixed use.
+- Configurable global hotkey.
+- Word length filters.
+- Optional proper-name filtering.
+- Ranking that prioritizes favorites, words you use frequently, and common words.
+- Favorites from the result context menu.
+- Used-word history where individual words can be restored.
+- Smart anti-repeat that can also hide close grammatical variants.
+- New-game/session reset.
+- Automatic Roblox session reset when a new Roblox target is detected.
+- Local session statistics.
+- Subtle sound feedback.
+- Subtle overlay fade-in animation.
+- OCR preprocessing for small/low-contrast text.
+- OCR correction for common mistakes such as **0/O** and **1/I**.
+- OCR confidence indicator based on how many valid dictionary results were found.
+- Optional launch at system startup.
+- Real Windows installer build and macOS DMG build.
+
+## OCR
+
+### macOS
+
+Word Helper prefers **Apple Vision**, using the native macOS OCR framework.
+
+macOS can request:
+
+- Accessibility permission
+- Screen Recording permission
+
+These permissions are needed for capture, global shortcuts, and automatic typing.
 
 ### Windows
 
-Requirements:
-- Windows 10/11
-- Python 3.11 or newer
-- Internet connection during setup
+Word Helper uses **Tesseract OCR** with image preprocessing before recognition.
 
-Open PowerShell in the repository folder and run:
+Tesseract must be installed and available in PATH for screenshot OCR. Manual searches still work without OCR.
+
+## Quick development install
+
+### Windows
+
+Open PowerShell inside the repository:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
 ```
 
-The installer creates a local virtual environment, installs the Python dependencies and tries to install Tesseract OCR through `winget` when necessary.
-
-After setup, open:
+Then open:
 
 ```text
 Word Helper.bat
 ```
 
 ### macOS
-
-Requirements:
-- macOS
-- Python 3
-
-From Terminal inside the repository:
 
 ```bash
 bash setup_macos.sh
@@ -60,37 +89,72 @@ Then open:
 Word Helper.command
 ```
 
-macOS can ask for **Accessibility** and **Screen Recording** permissions. They are necessary for the global shortcut, capture and automatic typing.
+## Real installers
 
-## Manual installation
+The GitHub Actions build workflow creates:
 
-```bash
-git clone https://github.com/DonMilo-22/Super-Diccionario.git
-cd Super-Diccionario
-python -m venv .venv
+- **Windows:** `Word-Helper-Setup.exe`
+- **macOS:** `Word-Helper-macOS.dmg`
+
+The workflow can be started manually from GitHub Actions or by pushing a version tag such as:
+
+```text
+v2.0.0
 ```
 
-Activate the environment and install:
+## Controls
 
-```bash
-pip install -r requirements.txt
-python main.py
-```
+| Action | Control |
+| --- | --- |
+| Capture screen text | Alt + Space |
+| Select suggestion | Click or 1–9 |
+| Favorite a word | Right-click result |
+| Start fresh game/session | Nueva partida |
+| Restore a used word | Historial |
+| Change profile/settings | Gear button |
+| Open hidden app | System tray |
 
-On Windows, Tesseract OCR must also be installed and available in PATH.
+The global shortcut can be changed in Settings.
 
-## Usage
+## Profiles
 
-1. Keep the application running.
-2. Go to the application or game where you want to use Word Helper.
-3. Press **Alt + Space**.
-4. Select the text fragment on screen.
-5. Word Helper reads the capture and shows suggestions.
-6. Click a word such as `lovely`.
-7. Word Helper hides itself, returns to the previous window and types `lovely`.
-8. That word is immediately saved as used and will no longer appear in searches until the used-word list is reset.
+### Roblox
 
-You can also type a fragment manually and use **Inicio** or **Final**.
+Optimized for fast gameplay:
+
+- English by default
+- automatic start/end search
+- common-word ranking
+- compact overlay
+- automatic Enter enabled
+- session reset support
+
+### English / Español / Ambos
+
+Profiles switch language and sensible defaults without requiring you to change every option manually.
+
+## Used words and history
+
+Used words are stored outside the repository:
+
+- macOS: `~/Library/Application Support/WordHelper/used_words.json`
+- Windows: `%APPDATA%\WordHelper\used_words.json`
+
+The **Historial** window lets you restore one word instead of clearing the entire list.
+
+Smart anti-repeat can additionally hide related variants such as close suffix variants during a session.
+
+## Statistics
+
+Word Helper stores local-only statistics such as:
+
+- words used in the current session
+- total words used
+- session count
+- per-word usage count
+- favorites
+
+These statistics are used to improve ranking locally.
 
 ## Project structure
 
@@ -98,61 +162,47 @@ You can also type a fragment manually and use **Inicio** or **Final**.
 Super-Diccionario/
 ├── main.py
 ├── capture.py
-├── platform_utils.py
-├── ocr.py
+├── dialogs.py
 ├── dictionary.py
+├── ocr.py
+├── platform_utils.py
+├── settings.py
+├── stats.py
 ├── used_words.py
 ├── build_app.py
-├── requirements.txt
-├── requirements-dev.txt
+├── build_dmg.sh
+├── installer.iss
 ├── setup_windows.ps1
 ├── setup_macos.sh
+├── requirements.txt
+├── requirements-dev.txt
 ├── data/
-│   ├── english_words.txt
-│   └── spanish_words.txt
 ├── tests/
 └── .github/workflows/
 ```
 
-## Building a desktop application
-
-Install development dependencies:
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-Then run:
-
-```bash
-python build_app.py
-```
-
-The build is written to the `dist/` folder.
-
-A GitHub Actions build workflow is also included for macOS and Windows. It can be started manually from the Actions tab or automatically when a version tag such as `v1.0.0` is pushed.
-
-> Windows builds still require Tesseract OCR on the destination computer for screenshot OCR. Manual text searches work without it.
-
-## Used-word storage
-
-Word Helper keeps its history outside the repository:
-
-- macOS: `~/Library/Application Support/WordHelper/used_words.json`
-- Windows: `%APPDATA%\WordHelper\used_words.json`
-- Linux-compatible fallback: `~/.local/share/WordHelper/used_words.json`
-
 ## Development checks
 
-Run:
-
 ```bash
-python -m compileall -q main.py capture.py dictionary.py ocr.py platform_utils.py used_words.py
+python -m compileall -q main.py capture.py dialogs.py dictionary.py ocr.py platform_utils.py settings.py stats.py used_words.py
 python -m unittest discover -s tests -v
 ```
 
-GitHub Actions runs these checks on both Windows and macOS for pull requests and relevant pushes.
+GitHub Actions runs the test suite on both Windows and macOS.
 
-## Notes
+## Build manually
 
-The old README described Tesseract as the macOS OCR engine. The current implementation uses Apple Vision on macOS and Tesseract as the Windows/cross-platform fallback.
+Install build dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+python build_app.py
+```
+
+On macOS, create the DMG after building:
+
+```bash
+bash build_dmg.sh
+```
+
+On Windows, `installer.iss` can be compiled with Inno Setup after the PyInstaller build.
