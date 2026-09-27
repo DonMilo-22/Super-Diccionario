@@ -62,6 +62,20 @@ def _rank(word, common_first=True):
     return (-favorite_boost, -usage_boost, -common_boost, len(word), key)
 
 
+def _difficulty_rank(word, difficulty):
+    key = word.lower()
+    common = COMMON_WORDS.get(key, 0)
+    usage = int(usage_counts().get(key, 0))
+
+    if difficulty == "easy":
+        return (-common, -usage, len(word), key)
+
+    if difficulty == "hard":
+        return (common > 0, common, usage, -len(word), key)
+
+    return _rank(word, True)
+
+
 def filter_words(words, min_length=1, max_length=32, exclude_proper=False):
     result = []
     for word in words:
@@ -110,3 +124,31 @@ def auto_suggestions(fragment, words, limit=20, **options):
             seen.add(key)
 
     return sorted(combined, key=lambda word: _rank(word, options.get("common_first", True)))[:limit]
+
+
+def chain_candidates(prefix, words, difficulty="normal", limit=80, **options):
+    prefix = prefix.lower()
+    matches = [word for word in words if word.lower().startswith(prefix)]
+    matches = filter_words(
+        matches,
+        options.get("min_length", 1),
+        options.get("max_length", 32),
+        options.get("exclude_proper", False),
+    )
+    matches = remove_used(
+        matches,
+        smart=options.get("smart_antirepeat", False),
+    )
+
+    unique = []
+    seen = set()
+    for word in matches:
+        key = word.lower()
+        if key not in seen:
+            unique.append(word)
+            seen.add(key)
+
+    return sorted(
+        unique,
+        key=lambda word: _difficulty_rank(word, difficulty),
+    )[:limit]

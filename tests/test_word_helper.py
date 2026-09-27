@@ -6,6 +6,7 @@ import dictionary
 import settings
 import stats
 import used_words
+from auto_mode import extract_full_word, extract_requirement, normalize_region
 from ocr import correction_candidates, normalize_ocr_text
 
 
@@ -77,6 +78,40 @@ class WordHelperTests(unittest.TestCase):
         lowered = [word.lower() for word in results]
         self.assertIn("lyric", lowered)
         self.assertIn("quickly", lowered)
+
+    def test_extract_full_opponent_word(self):
+        self.assertEqual(extract_full_word("ISLAS"), "islas")
+
+    def test_requirement_keeps_full_prompt(self):
+        self.assertEqual(extract_requirement("AS"), "as")
+        self.assertEqual(extract_requirement("START WITH AS"), "as")
+        self.assertEqual(extract_requirement("ISLA"), "isla")
+
+    def test_requirement_joins_separate_letter_tiles(self):
+        self.assertEqual(extract_requirement("U G L"), "ugl")
+        self.assertEqual(extract_requirement("START WITH U G L"), "ugl")
+
+    def test_auto_regions_are_validated(self):
+        region = {"x": 10, "y": 20, "width": 200, "height": 50}
+        self.assertEqual(normalize_region(region), region)
+        self.assertIsNone(normalize_region({"x": 1}))
+
+    def test_chain_candidates_never_return_used_words(self):
+        used_words.add_used("asilo")
+        results = dictionary.chain_candidates(
+            "as",
+            ["asilo", "astro", "asunto"],
+            difficulty="normal",
+            smart_antirepeat=False,
+        )
+        self.assertNotIn("asilo", [word.lower() for word in results])
+
+    def test_chain_difficulty_changes_order(self):
+        words = ["love", "lovely", "lovecraftian"]
+        easy = dictionary.chain_candidates("lov", words, difficulty="easy")
+        hard = dictionary.chain_candidates("lov", words, difficulty="hard")
+        self.assertEqual(easy[0].lower(), "love")
+        self.assertEqual(hard[0].lower(), "lovecraftian")
 
 
 if __name__ == "__main__":

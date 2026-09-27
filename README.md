@@ -42,6 +42,58 @@ Word Helper is a fast desktop word assistant built for games and any workflow wh
 - Optional launch at system startup.
 - Real Windows installer build and macOS DMG build.
 
+## Automatic Last Letter test mode
+
+Word Helper also includes an optional fully automatic OCR test mode designed to benchmark the app's recognition, dictionary search, and desktop automation pipeline.
+
+It uses **two independently calibrated screen regions**:
+
+1. **Opponent word region** – reads the opponent's complete submitted word and stores that full word as used.
+2. **Requirement region** – reads exactly what the game displays as the required beginning for the next response.
+
+Word Helper does not infer the requirement from the opponent word. If the UI displays `A`, `AS`, `U G L`, or a complete word such as `ISLA`, that displayed requirement becomes the search prefix.
+
+The automatic flow is:
+
+```text
+Opponent complete word
+        ↓
+save as used
+        ↓
+read game-provided requirement
+        ↓
+find unused candidates
+        ↓
+rank by Easy / Normal / Hard
+        ↓
+type candidate + Enter
+        ↓
+wait for the game state to change
+   ↙ accepted       ↘ unchanged
+wait for next       try next unused
+opponent word       candidate
+```
+
+OCR must read the same opponent word and requirement multiple times before Word Helper acts, which reduces accidental triggers from partial captures.
+
+Difficulty changes candidate ordering:
+
+- **Easy:** common and familiar words first.
+- **Normal:** balanced ranking.
+- **Hard:** rarer and generally longer candidates first.
+
+Both opponent words and Word Helper responses enter the same used-word history, so neither side's words are intentionally repeated during the session.
+
+To configure the mode:
+
+1. Open Roblox and Word Helper.
+2. Click **Zona rival** and select only the area where the complete opponent word appears.
+3. Click **Zona requisito** and select only the UI area that shows what your next word must start with.
+4. Choose the automatic language and difficulty.
+5. Turn **Auto: ON**.
+
+The mode can also be toggled from the Word Helper system-tray menu.
+
 ## OCR
 
 ### macOS
@@ -161,6 +213,7 @@ These statistics are used to improve ranking locally.
 ```text
 Super-Diccionario/
 ├── main.py
+├── auto_mode.py
 ├── capture.py
 ├── dialogs.py
 ├── dictionary.py
@@ -184,7 +237,7 @@ Super-Diccionario/
 ## Development checks
 
 ```bash
-python -m compileall -q main.py capture.py dialogs.py dictionary.py ocr.py platform_utils.py settings.py stats.py used_words.py
+python -m compileall -q main.py auto_mode.py capture.py dialogs.py dictionary.py ocr.py platform_utils.py settings.py stats.py used_words.py
 python -m unittest discover -s tests -v
 ```
 
