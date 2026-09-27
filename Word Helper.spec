@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+# Legacy PyInstaller spec kept for macOS users.
+# For cross-platform builds, prefer: python build_app.py
 
 a = Analysis(
     ['main.py'],
@@ -14,6 +15,7 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -32,8 +34,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon.icns'],
 )
+
 coll = COLLECT(
     exe,
     a.binaries,
@@ -43,9 +45,9 @@ coll = COLLECT(
     upx_exclude=[],
     name='Word Helper',
 )
+
 app = BUNDLE(
     coll,
     name='Word Helper.app',
-    icon='icon.icns',
-    bundle_identifier=None,
+    bundle_identifier='com.donmilo.wordhelper',
 )

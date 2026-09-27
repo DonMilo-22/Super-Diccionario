@@ -3,119 +3,92 @@ import sys
 
 from used_words import load_used
 
-def resource_path(relative_path):
 
+def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
+    except AttributeError:
+        base_path = os.path.abspath(os.path.dirname(__file__))
 
-    return os.path.join(
-        base_path,
-        relative_path
-    )
+    return os.path.join(base_path, relative_path)
+
+
+def load_words(path):
+    with open(path, "r", encoding="utf-8") as file:
+        return list(dict.fromkeys(
+            word.strip()
+            for word in file
+            if word.strip()
+        ))
+
 
 def remove_used(words):
-
     used = load_used()
-
     return [
-        w for w in words
-        if w.lower() not in used
+        word
+        for word in words
+        if word.lower() not in used
     ]
-def load_words(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return [w.strip() for w in f.readlines()]
+
 
 english = load_words(resource_path("data/english_words.txt"))
 spanish = load_words(resource_path("data/spanish_words.txt"))
 
+
 def starts_with(prefix, words):
     prefix = prefix.lower()
-
     results = [
-        w for w in words
-        if w.lower().startswith(prefix)
+        word
+        for word in words
+        if word.lower().startswith(prefix)
     ]
+    return sorted(remove_used(results), key=lambda word: (len(word), word.lower()))
 
-    return sorted(results, key=len)
 
 def ends_with(suffix, words):
     suffix = suffix.lower()
-
     results = [
-        w for w in words
-        if w.lower().endswith(suffix)
+        word
+        for word in words
+        if word.lower().endswith(suffix)
     ]
+    return sorted(remove_used(results), key=lambda word: (len(word), word.lower()))
 
-    return sorted(results, key=len)
 
-def generate_suggestions(prefix, words):
-
+def generate_suggestions(prefix, words, limit=20):
     prefix = prefix.lower()
+    matches = remove_used([
+        word
+        for word in words
+        if word.lower().startswith(prefix)
+    ])
 
-    matches = [
-        w for w in words
-        if w.lower().startswith(prefix)
-    ]
+    short_words = [word for word in matches if len(word) <= 4]
+    medium_words = [word for word in matches if 5 <= len(word) <= 10]
+    long_words = [word for word in matches if len(word) > 10]
 
-    matches = remove_used(matches)
-
-    short_words = [
-        w for w in matches
-        if len(w) <= 4
-    ]
-
-    medium_words = [
-        w for w in matches
-        if len(w) >= 5
-    ]
-
-    long_words = [
-        w for w in matches
-        if len(w) > 10
-    ]
-
-    same_end = [
-        w for w in matches
-        if w.lower().endswith(prefix)
+    groups = [
+        sorted(short_words, key=lambda word: (len(word), word.lower())),
+        sorted(medium_words, key=lambda word: (len(word), word.lower())),
+        sorted(long_words, key=lambda word: (len(word), word.lower())),
     ]
 
     result = []
-
-    result.extend(sorted(short_words, key=len)[:5])
-
-    result.extend(
-        sorted(medium_words, key=len)[:5]
-    )
-
-    result.extend(
-        sorted(long_words, key=len)[:5]
-    )
-
-    result.extend(
-        sorted(same_end, key=len)[:5]
-    )
-
-    unique = []
-
     seen = set()
 
-    for word in result:
+    # Give each word length group a chance to appear before filling the rest.
+    for group in groups:
+        for word in group[:5]:
+            key = word.lower()
+            if key not in seen:
+                result.append(word)
+                seen.add(key)
 
-        if word not in seen:
-            unique.append(word)
-            seen.add(word)
-
-    if len(unique) < 20:
-
-        remaining = [
-            w for w in matches
-            if w not in seen
-        ]
-
-        unique.extend(
-            remaining[:20 - len(unique)]
+    if len(result) < limit:
+        remaining = sorted(
+            (word for word in matches if word.lower() not in seen),
+            key=lambda word: (len(word), word.lower()),
         )
+        result.extend(remaining[: limit - len(result)])
 
-    return unique[:20]
+    return result[:limit]

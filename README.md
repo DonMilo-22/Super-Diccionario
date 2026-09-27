@@ -1,134 +1,158 @@
-# Super Diccionario (Word Helper)
+# Word Helper
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+Word Helper is a small desktop application for finding English and Spanish words from a text fragment. It is designed for fast use while another application or game is open.
 
-A small **Python + Qt6** desktop application that helps you discover English and Spanish words based on a text fragment.  It can capture a region of the screen, run OCR on the image, and instantly suggest words that **start** or **end** with the captured text.  The UI is styled with a dark theme and a modern glass‑morphism look.
+## What it does
 
----
+- Global shortcut: **Alt + Space**
+- Cross-platform screen region capture with Qt
+- OCR:
+  - macOS: Apple Vision
+  - Windows: Tesseract OCR
+- English and Spanish word suggestions
+- Search by beginning or ending of a word
+- Click a suggestion to:
+  1. mark it as used,
+  2. return focus to the previous window,
+  3. type the selected word automatically
+- Used words are saved and excluded from future suggestions
+- Reset button to clear the used-word history
+- Always-on-top desktop interface
 
-## ✨ Features
+## Quick install
 
-- **Global hot‑key** (`Alt + Space`) to capture a screenshot anywhere on macOS.
-- **OCR integration** (uses Tesseract) to turn the screenshot into text.
-- Instant word suggestions from built‑in English and Spanish dictionaries.
-- Two search modes:
-  - *Start* – words that begin with the fragment.
-  - *End* – words that end with the fragment.
-- Check‑boxes to mark words as "used"; used words are persisted in `used_words.json`.
-- Simple *reset* button to clear the used‑words list.
-- Dark, glass‑morphic UI built with **Qt6** and custom CSS.
+### Windows
 
----
+Requirements:
+- Windows 10/11
+- Python 3.11 or newer
+- Internet connection during setup
 
-## 📦 Installation
+Open PowerShell in the repository folder and run:
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/DonMilo-22/Super-Diccionario.git
-   cd super-diccionario
-   ```
-
-2. **Create a virtual environment (optional but recommended)**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate   # on macOS / Linux
-   # .\venv\Scripts\activate   # on Windows
-   ```
-
-3. **Install Python dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-   *If a `requirements.txt` does not exist yet, you can generate it with:*
-   ```bash
-   pip freeze > requirements.txt
-   ```
-
-4. **Install Tesseract OCR** (required by `ocr.py`)
-   ```bash
-   # macOS (Homebrew)
-   brew install tesseract
-   ```
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install tesseract-ocr
-   ```
-
-5. **Run the app**
-   ```bash
-   python main.py
-   ```
-
----
-
-## 🎮 Usage
-
-1. Press **Alt + Space** (the global hot‑key). A screen‑capture selector appears.
-2. Select the area that contains the text you want to analyse.
-3. The captured image is processed with OCR and the resulting text appears in the input box.
-4. Press **Enter** or click **Inicio** to see word suggestions that *start* with the fragment.
-5. Click **Final** to see suggestions that *end* with the fragment.
-6. Check a word to mark it as used – it will be removed from the list and stored in `used_words.json`.
-7. Click **Reiniciar palabras** to clear the used‑words history.
-
-> **Tip:** The application stays on top of other windows (`WindowStaysOnTopHint`) for a smooth workflow.
-
----
-
-## 📁 Project Structure
-
-```
-Super Diccionario/
-├─ main.py                # UI & application logic
-├─ ocr.py                 # OCR wrapper around Tesseract
-├─ dictionary.py          # Word lists & search helpers
-├─ used_words.py          # Persistence of used words (JSON)
-├─ used_words.json        # Stored used‑words (auto‑generated)
-├─ capture.png            # Example screenshot (optional)
-├─ Word Helper.spec       # PyInstaller spec for building an .app
-├─ README.md              # **You are reading it!**
-└─ data/                  # (optional) extra resources
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
 ```
 
----
+The installer creates a local virtual environment, installs the Python dependencies and tries to install Tesseract OCR through `winget` when necessary.
 
-## 🛠️ Building a Stand‑alone Executable (optional)
+After setup, open:
 
-The project includes a PyInstaller spec file. To create a macOS `.app` bundle:
+```text
+Word Helper.bat
+```
+
+### macOS
+
+Requirements:
+- macOS
+- Python 3
+
+From Terminal inside the repository:
 
 ```bash
-pip install pyinstaller
-pyinstaller Word\ Helper.spec
+bash setup_macos.sh
 ```
 
-The resulting app will be available in the `dist/` folder.
+Then open:
 
----
+```text
+Word Helper.command
+```
 
-## 🤝 Contributing
+macOS can ask for **Accessibility** and **Screen Recording** permissions. They are necessary for the global shortcut, capture and automatic typing.
 
-Contributions are welcome! Feel free to:
-- Add more languages or larger dictionaries.
-- Improve the UI/UX (animations, dark‑mode tweaks, etc.).
-- Fix bugs or add unit tests.
+## Manual installation
 
-Please fork the repository, create a feature branch, and submit a pull request.
+```bash
+git clone https://github.com/DonMilo-22/Super-Diccionario.git
+cd Super-Diccionario
+python -m venv .venv
+```
 
----
+Activate the environment and install:
 
-## 📜 License
+```bash
+pip install -r requirements.txt
+python main.py
+```
 
-This project is licensed under the **MIT License** – see the `LICENSE` file for details.
+On Windows, Tesseract OCR must also be installed and available in PATH.
 
----
+## Usage
 
-## 🙏 Acknowledgements
+1. Keep the application running.
+2. Go to the application or game where you want to use Word Helper.
+3. Press **Alt + Space**.
+4. Select the text fragment on screen.
+5. Word Helper reads the capture and shows suggestions.
+6. Click a word such as `lovely`.
+7. Word Helper hides itself, returns to the previous window and types `lovely`.
+8. That word is immediately saved as used and will no longer appear in searches until the used-word list is reset.
 
-- **PyQt6** – powerful Qt bindings for Python.
-- **pynput** – handling global hot‑keys.
-- **Tesseract OCR** – open‑source optical character recognition.
-- **Qt's stylesheet system** – for the sleek dark theme.
+You can also type a fragment manually and use **Inicio** or **Final**.
 
----
+## Project structure
 
-*Happy word hunting!*
+```text
+Super-Diccionario/
+├── main.py
+├── capture.py
+├── platform_utils.py
+├── ocr.py
+├── dictionary.py
+├── used_words.py
+├── build_app.py
+├── requirements.txt
+├── requirements-dev.txt
+├── setup_windows.ps1
+├── setup_macos.sh
+├── data/
+│   ├── english_words.txt
+│   └── spanish_words.txt
+├── tests/
+└── .github/workflows/
+```
+
+## Building a desktop application
+
+Install development dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Then run:
+
+```bash
+python build_app.py
+```
+
+The build is written to the `dist/` folder.
+
+A GitHub Actions build workflow is also included for macOS and Windows. It can be started manually from the Actions tab or automatically when a version tag such as `v1.0.0` is pushed.
+
+> Windows builds still require Tesseract OCR on the destination computer for screenshot OCR. Manual text searches work without it.
+
+## Used-word storage
+
+Word Helper keeps its history outside the repository:
+
+- macOS: `~/Library/Application Support/WordHelper/used_words.json`
+- Windows: `%APPDATA%\WordHelper\used_words.json`
+- Linux-compatible fallback: `~/.local/share/WordHelper/used_words.json`
+
+## Development checks
+
+Run:
+
+```bash
+python -m compileall -q main.py capture.py dictionary.py ocr.py platform_utils.py used_words.py
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs these checks on both Windows and macOS for pull requests and relevant pushes.
+
+## Notes
+
+The old README described Tesseract as the macOS OCR engine. The current implementation uses Apple Vision on macOS and Tesseract as the Windows/cross-platform fallback.
