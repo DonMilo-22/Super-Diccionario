@@ -36,6 +36,14 @@ class SettingsDialog(QDialog):
         self.language.addItems(["english", "spanish", "both"])
         self.language.setCurrentText(self.settings.get("language", "both"))
 
+        self.auto_language = QComboBox()
+        self.auto_language.addItems(["english", "spanish", "both"])
+        self.auto_language.setCurrentText(self.settings.get("auto_language", "spanish"))
+
+        self.difficulty = QComboBox()
+        self.difficulty.addItems(["easy", "normal", "hard"])
+        self.difficulty.setCurrentText(self.settings.get("difficulty", "normal"))
+
         self.search_mode = QComboBox()
         self.search_mode.addItems(["auto", "start", "end"])
         self.search_mode.setCurrentText(self.settings.get("search_mode", "auto"))
@@ -46,6 +54,16 @@ class SettingsDialog(QDialog):
         self.min_length.setRange(1, 50)
         self.min_length.setValue(int(self.settings.get("min_length", 1)))
 
+        self.retry_ms = QSpinBox()
+        self.retry_ms.setRange(500, 10000)
+        self.retry_ms.setSingleStep(100)
+        self.retry_ms.setValue(int(self.settings.get("auto_retry_ms", 1800)))
+
+        self.interval_ms = QSpinBox()
+        self.interval_ms.setRange(300, 5000)
+        self.interval_ms.setSingleStep(100)
+        self.interval_ms.setValue(int(self.settings.get("auto_interval_ms", 700)))
+
         self.max_length = QSpinBox()
         self.max_length.setRange(1, 80)
         self.max_length.setValue(int(self.settings.get("max_length", 32)))
@@ -53,9 +71,13 @@ class SettingsDialog(QDialog):
         form.addRow("Perfil", self.profile)
         form.addRow("Idioma", self.language)
         form.addRow("Búsqueda", self.search_mode)
+        form.addRow("Idioma automático", self.auto_language)
+        form.addRow("Dificultad automática", self.difficulty)
         form.addRow("Atajo", self.hotkey)
         form.addRow("Longitud mínima", self.min_length)
         form.addRow("Longitud máxima", self.max_length)
+        form.addRow("Escaneo automático (ms)", self.interval_ms)
+        form.addRow("Reintento de palabra (ms)", self.retry_ms)
         layout.addLayout(form)
 
         self.auto_enter = QCheckBox("Enviar Enter después de escribir")
@@ -98,6 +120,10 @@ class SettingsDialog(QDialog):
             "language": self.language.currentText(),
             "search_mode": self.search_mode.currentText(),
             "hotkey": self.hotkey.text().strip() or "<alt>+<space>",
+            "auto_language": self.auto_language.currentText(),
+            "difficulty": self.difficulty.currentText(),
+            "auto_interval_ms": self.interval_ms.value(),
+            "auto_retry_ms": self.retry_ms.value(),
             "min_length": self.min_length.value(),
             "max_length": max(self.min_length.value(), self.max_length.value()),
             "auto_enter": self.auto_enter.isChecked(),
