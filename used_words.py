@@ -72,5 +72,11 @@ def add_used(word):
     save_used(words)
 
 
+def remove_used(word):
+    words = load_used()
+    words.discard(word.lower())
+    save_used(words)
+
+
 def clear_used():
     save_used(set())
