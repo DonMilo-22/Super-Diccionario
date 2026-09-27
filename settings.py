@@ -21,6 +21,7 @@ DEFAULT_SETTINGS = {
     "compact_overlay": True,
     "reset_on_new_session": True,
     "show_ocr_confidence": True,
+    "smart_antirepeat": True,
 }
 
 PROFILE_PRESETS = {
