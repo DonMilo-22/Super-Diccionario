@@ -1,7 +1,7 @@
 import sys
 
 from pynput import keyboard
-from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QPoint, QPropertyAnimation, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QCursor, QGuiApplication, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QStyle,
+    QGraphicsOpacityEffect,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
@@ -191,7 +192,7 @@ class WordFinder(QWidget):
             return
 
         candidates = correction_candidates(raw_text)
-        fragment = self.pick_best_ocr_candidate(candidates)
+        fragment, confidence = self.pick_best_ocr_candidate(candidates)
 
         if not fragment:
             self.show_normal()
@@ -201,7 +202,10 @@ class WordFinder(QWidget):
 
         self.input_box.setText(fragment)
         self.search(show_after=True)
-        self.status_label.setText(f'OCR: "{fragment}" · {len(self.result_words)} opciones')
+        confidence_text = {"high": "alta", "medium": "media", "low": "baja"}.get(confidence, confidence)
+        self.status_label.setText(
+            f'OCR: "{fragment}" · confianza {confidence_text} · {len(self.result_words)} opciones'
+        )
 
     def pick_best_ocr_candidate(self, candidates):
         best = ""
@@ -211,7 +215,15 @@ class WordFinder(QWidget):
             if count > best_count:
                 best = candidate
                 best_count = count
-        return best
+
+        if best_count >= 6:
+            confidence = "high"
+        elif best_count >= 2:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        return best, confidence
 
     def search_options(self):
         return {
@@ -219,6 +231,7 @@ class WordFinder(QWidget):
             "max_length": int(self.settings.get("max_length", 32)),
             "exclude_proper": bool(self.settings.get("exclude_proper_names", False)),
             "common_first": bool(self.settings.get("common_words_first", True)),
+            "smart_antirepeat": bool(self.settings.get("smart_antirepeat", True)),
         }
 
     def selected_dictionaries(self):
@@ -291,9 +304,21 @@ class WordFinder(QWidget):
         x = min(cursor.x() + 18, area.right() - self.width())
         y = min(cursor.y() + 18, area.bottom() - self.height())
         self.move(QPoint(max(area.left(), x), max(area.top(), y)))
-        self.show()
+        self.fade_in()
         self.raise_()
         self.activateWindow()
+
+    def fade_in(self):
+        effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(effect)
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(120)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.finished.connect(lambda: self.setGraphicsEffect(None))
+        self._fade_animation = animation
+        self.show()
+        animation.start()
 
     def show_normal(self):
         self.resize(390, 460)
