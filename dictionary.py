@@ -1,7 +1,18 @@
 import os
 import sys
 
+from stats import favorites, usage_counts
 from used_words import load_used
+
+
+COMMON_WORDS = {
+    "the": 1000, "love": 990, "lover": 950, "lovely": 940, "like": 930, "life": 920,
+    "good": 910, "great": 900, "happy": 890, "hello": 880, "world": 870, "game": 860,
+    "play": 850, "player": 840, "quick": 830, "quickly": 820, "slow": 810, "slowly": 800,
+    "house": 790, "water": 780, "light": 770, "night": 760, "fire": 750, "friend": 740,
+    "amor": 990, "casa": 950, "juego": 940, "hola": 930, "mundo": 920, "feliz": 910,
+    "bueno": 900, "grande": 890, "agua": 880, "fuego": 870, "amigo": 860,
+}
 
 
 def resource_path(relative_path):
@@ -9,86 +20,72 @@ def resource_path(relative_path):
         base_path = sys._MEIPASS
     except AttributeError:
         base_path = os.path.abspath(os.path.dirname(__file__))
-
     return os.path.join(base_path, relative_path)
 
 
 def load_words(path):
     with open(path, "r", encoding="utf-8") as file:
-        return list(dict.fromkeys(
-            word.strip()
-            for word in file
-            if word.strip()
-        ))
+        return list(dict.fromkeys(word.strip() for word in file if word.strip()))
 
 
 def remove_used(words):
     used = load_used()
-    return [
-        word
-        for word in words
-        if word.lower() not in used
-    ]
+    return [word for word in words if word.lower() not in used]
 
 
 english = load_words(resource_path("data/english_words.txt"))
 spanish = load_words(resource_path("data/spanish_words.txt"))
 
 
-def starts_with(prefix, words):
-    prefix = prefix.lower()
-    results = [
-        word
-        for word in words
-        if word.lower().startswith(prefix)
-    ]
-    return sorted(remove_used(results), key=lambda word: (len(word), word.lower()))
+def _rank(word, common_first=True):
+    key = word.lower()
+    favs = favorites()
+    counts = usage_counts()
+    favorite_boost = 1 if key in favs else 0
+    usage_boost = int(counts.get(key, 0))
+    common_boost = COMMON_WORDS.get(key, 0) if common_first else 0
+    return (-favorite_boost, -usage_boost, -common_boost, len(word), key)
 
 
-def ends_with(suffix, words):
-    suffix = suffix.lower()
-    results = [
-        word
-        for word in words
-        if word.lower().endswith(suffix)
-    ]
-    return sorted(remove_used(results), key=lambda word: (len(word), word.lower()))
-
-
-def generate_suggestions(prefix, words, limit=20):
-    prefix = prefix.lower()
-    matches = remove_used([
-        word
-        for word in words
-        if word.lower().startswith(prefix)
-    ])
-
-    short_words = [word for word in matches if len(word) <= 4]
-    medium_words = [word for word in matches if 5 <= len(word) <= 10]
-    long_words = [word for word in matches if len(word) > 10]
-
-    groups = [
-        sorted(short_words, key=lambda word: (len(word), word.lower())),
-        sorted(medium_words, key=lambda word: (len(word), word.lower())),
-        sorted(long_words, key=lambda word: (len(word), word.lower())),
-    ]
-
+def filter_words(words, min_length=1, max_length=32, exclude_proper=False):
     result = []
+    for word in words:
+        if not (min_length <= len(word) <= max_length):
+            continue
+        if exclude_proper and word[:1].isupper() and not word.isupper():
+            continue
+        result.append(word)
+    return result
+
+
+def starts_with(prefix, words, limit=20, **options):
+    prefix = prefix.lower()
+    matches = [word for word in words if word.lower().startswith(prefix)]
+    matches = remove_used(filter_words(matches, options.get("min_length", 1), options.get("max_length", 32), options.get("exclude_proper", False)))
+    return sorted(matches, key=lambda word: _rank(word, options.get("common_first", True)))[:limit]
+
+
+def ends_with(suffix, words, limit=20, **options):
+    suffix = suffix.lower()
+    matches = [word for word in words if word.lower().endswith(suffix)]
+    matches = remove_used(filter_words(matches, options.get("min_length", 1), options.get("max_length", 32), options.get("exclude_proper", False)))
+    return sorted(matches, key=lambda word: _rank(word, options.get("common_first", True)))[:limit]
+
+
+def generate_suggestions(prefix, words, limit=20, **options):
+    return starts_with(prefix, words, limit=limit, **options)
+
+
+def auto_suggestions(fragment, words, limit=20, **options):
+    start = starts_with(fragment, words, limit=limit, **options)
+    end = ends_with(fragment, words, limit=limit, **options)
+
+    combined = []
     seen = set()
+    for word in start + end:
+        key = word.lower()
+        if key not in seen:
+            combined.append(word)
+            seen.add(key)
 
-    # Give each word length group a chance to appear before filling the rest.
-    for group in groups:
-        for word in group[:5]:
-            key = word.lower()
-            if key not in seen:
-                result.append(word)
-                seen.add(key)
-
-    if len(result) < limit:
-        remaining = sorted(
-            (word for word in matches if word.lower() not in seen),
-            key=lambda word: (len(word), word.lower()),
-        )
-        result.extend(remaining[: limit - len(result)])
-
-    return result[:limit]
+    return sorted(combined, key=lambda word: _rank(word, options.get("common_first", True)))[:limit]
