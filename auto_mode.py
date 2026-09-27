@@ -21,7 +21,7 @@ def extract_words(text):
 
 def extract_full_word(text):
     words = extract_words(text)
-    return max(words, key=len).lower() if words else ""
+    return words[-1].lower() if words else ""
 
 
 def extract_requirement(text):
