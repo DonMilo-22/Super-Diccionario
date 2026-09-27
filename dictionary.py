@@ -28,9 +28,24 @@ def load_words(path):
         return list(dict.fromkeys(word.strip() for word in file if word.strip()))
 
 
-def remove_used(words):
+def _family_key(word):
+    key = word.lower()
+    for suffix in ("ingly", "edly", "ing", "ed", "es", "s", "ly"):
+        if len(key) > len(suffix) + 3 and key.endswith(suffix):
+            return key[:-len(suffix)]
+    return key
+
+
+def remove_used(words, smart=False):
     used = load_used()
-    return [word for word in words if word.lower() not in used]
+    if not smart:
+        return [word for word in words if word.lower() not in used]
+
+    used_families = {_family_key(word) for word in used}
+    return [
+        word for word in words
+        if word.lower() not in used and _family_key(word) not in used_families
+    ]
 
 
 english = load_words(resource_path("data/english_words.txt"))
@@ -61,14 +76,20 @@ def filter_words(words, min_length=1, max_length=32, exclude_proper=False):
 def starts_with(prefix, words, limit=20, **options):
     prefix = prefix.lower()
     matches = [word for word in words if word.lower().startswith(prefix)]
-    matches = remove_used(filter_words(matches, options.get("min_length", 1), options.get("max_length", 32), options.get("exclude_proper", False)))
+    matches = remove_used(
+        filter_words(matches, options.get("min_length", 1), options.get("max_length", 32), options.get("exclude_proper", False)),
+        smart=options.get("smart_antirepeat", False),
+    )
     return sorted(matches, key=lambda word: _rank(word, options.get("common_first", True)))[:limit]
 
 
 def ends_with(suffix, words, limit=20, **options):
     suffix = suffix.lower()
     matches = [word for word in words if word.lower().endswith(suffix)]
-    matches = remove_used(filter_words(matches, options.get("min_length", 1), options.get("max_length", 32), options.get("exclude_proper", False)))
+    matches = remove_used(
+        filter_words(matches, options.get("min_length", 1), options.get("max_length", 32), options.get("exclude_proper", False)),
+        smart=options.get("smart_antirepeat", False),
+    )
     return sorted(matches, key=lambda word: _rank(word, options.get("common_first", True)))[:limit]
 
 
