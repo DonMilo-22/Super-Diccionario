@@ -7,17 +7,8 @@ on:
       - "v*"
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            artifact: Word-Helper-Windows
-          - os: macos-latest
-            artifact: Word-Helper-macOS
-
-    runs-on: ${{ matrix.os }}
+  windows-installer:
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -26,17 +17,51 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install build dependencies
+      - name: Install Python build dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Build application
+      - name: Build Word Helper
         run: python build_app.py
 
-      - name: Upload application
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Create Windows installer
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss'
+
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: dist/
+          name: Word-Helper-Windows-Installer
+          path: installer/Word-Helper-Setup.exe
+          if-no-files-found: error
+
+  macos-installer:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Build Word Helper
+        run: python build_app.py
+
+      - name: Create macOS DMG
+        run: bash build_dmg.sh
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Word-Helper-macOS-DMG
+          path: installer/Word-Helper-macOS.dmg
           if-no-files-found: error

@@ -1,4 +1,5 @@
 import platform
+import re
 
 
 class OCRUnavailableError(RuntimeError):
@@ -30,21 +31,27 @@ def _read_with_vision(image_path):
     return " ".join(results)
 
 
+def _preprocess_for_tesseract(image_path):
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
+    image = Image.open(image_path).convert("L")
+    image = ImageOps.autocontrast(image)
+    image = image.resize((image.width * 3, image.height * 3))
+    image = ImageEnhance.Contrast(image).enhance(1.8)
+    return image.filter(ImageFilter.SHARPEN)
+
+
 def _read_with_tesseract(image_path):
     try:
         import pytesseract
-        from PIL import Image
     except ImportError as exc:
         raise OCRUnavailableError(
             "Faltan las dependencias de OCR. Ejecuta el instalador de Word Helper."
         ) from exc
 
     try:
-        with Image.open(image_path) as image:
-            return pytesseract.image_to_string(
-                image,
-                config="--psm 7",
-            )
+        image = _preprocess_for_tesseract(image_path)
+        return pytesseract.image_to_string(image, config="--psm 7")
     except pytesseract.TesseractNotFoundError as exc:
         raise OCRUnavailableError(
             "Tesseract OCR no esta instalado o no se encontro en PATH."
@@ -56,9 +63,28 @@ def read_text(image_path):
         try:
             return _read_with_vision(image_path)
         except Exception:
-            # Vision is the preferred native backend on macOS. If it is not
-            # available (for example in a custom Python environment), fall
-            # back to the cross-platform Tesseract backend.
             pass
-
     return _read_with_tesseract(image_path)
+
+
+def normalize_ocr_text(text):
+    text = re.sub(r"\s+", "", text or "")
+    text = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]", "", text)
+    return text.upper()
+
+
+def correction_candidates(text):
+    normalized = normalize_ocr_text(text)
+    candidates = [normalized]
+    swaps = {
+        "0": "O",
+        "1": "I",
+        "5": "S",
+        "8": "B",
+    }
+
+    corrected = "".join(swaps.get(char, char) for char in normalized)
+    if corrected != normalized:
+        candidates.append(corrected)
+
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
