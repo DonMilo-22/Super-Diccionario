@@ -126,3 +126,42 @@ def set_autostart(enabled):
         return True
 
     return False
+
+
+
+def find_target_by_name(name):
+    wanted = (name or "").lower()
+    system = platform.system()
+
+    if system == "Windows":
+        user32 = ctypes.windll.user32
+        matches = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        def enum_proc(hwnd, _lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return True
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buffer, length + 1)
+            title = buffer.value
+            if wanted in title.lower():
+                matches.append(("windows", int(hwnd)))
+            return True
+
+        user32.EnumWindows(enum_proc, 0)
+        return matches[0] if matches else None
+
+    if system == "Darwin":
+        try:
+            from AppKit import NSWorkspace
+            for app in NSWorkspace.sharedWorkspace().runningApplications():
+                app_name = app.localizedName() or ""
+                if wanted in app_name.lower():
+                    return ("macos", int(app.processIdentifier()))
+        except Exception:
+            return None
+
+    return None
