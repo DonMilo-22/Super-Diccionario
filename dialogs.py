@@ -66,6 +66,7 @@ class SettingsDialog(QDialog):
         self.autostart = QCheckBox("Iniciar Word Helper con el sistema")
         self.compact = QCheckBox("Usar overlay compacto")
         self.reset_session = QCheckBox("Reiniciar palabras al iniciar nueva sesión de Roblox")
+        self.smart_antirepeat = QCheckBox("Bloquear variantes cercanas de palabras ya usadas")
 
         checks = {
             self.auto_enter: "auto_enter",
@@ -76,6 +77,7 @@ class SettingsDialog(QDialog):
             self.autostart: "start_with_system",
             self.compact: "compact_overlay",
             self.reset_session: "reset_on_new_session",
+            self.smart_antirepeat: "smart_antirepeat",
         }
 
         for widget, key in checks.items():
@@ -106,6 +108,7 @@ class SettingsDialog(QDialog):
             "start_with_system": self.autostart.isChecked(),
             "compact_overlay": self.compact.isChecked(),
             "reset_on_new_session": self.reset_session.isChecked(),
+            "smart_antirepeat": self.smart_antirepeat.isChecked(),
         }
 
 
