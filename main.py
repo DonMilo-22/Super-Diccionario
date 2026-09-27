@@ -6,6 +6,7 @@ from PyQt6.QtGui import QAction, QCursor, QGuiApplication, QKeySequence, QShortc
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -15,17 +16,23 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QStyle,
-    QGraphicsOpacityEffect,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
-from capture import CaptureOverlay
+from auto_mode import AutomaticChainEngine
+from capture import CaptureOverlay, RegionSelector
 from dialogs import HistoryDialog, SettingsDialog
 from dictionary import auto_suggestions, english, ends_with, generate_suggestions, spanish
 from ocr import OCRUnavailableError, correction_candidates
-from platform_utils import get_foreground_target, set_autostart, target_name, type_text
+from platform_utils import (
+    find_target_by_name,
+    get_foreground_target,
+    set_autostart,
+    target_name,
+    type_text,
+)
 from settings import apply_profile, load_settings, save_settings
 from stats import load_stats, record_word, start_session, toggle_favorite
 from used_words import add_used, clear_used
@@ -39,12 +46,19 @@ class WordFinder(QWidget):
         self.settings = load_settings()
         self.last_target = None
         self.capture_overlay = None
+        self.region_selector = None
         self.result_words = []
         self.session_app_name = ""
 
+        self.auto_engine = AutomaticChainEngine(self.settings, parent=self)
+        self.auto_engine.status_changed.connect(self.on_auto_status)
+        self.auto_engine.turn_detected.connect(self.on_auto_turn)
+        self.auto_engine.reply_sent.connect(self.on_auto_reply)
+        self.auto_engine.exhausted.connect(self.on_auto_exhausted)
+
         self.setWindowTitle("Word Helper")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
-        self.resize(390, 460)
+        self.resize(420, 560)
 
         self.apply_theme()
         self.build_ui()
@@ -52,6 +66,7 @@ class WordFinder(QWidget):
         self.setup_numeric_shortcuts()
         self.capture_requested.connect(self.start_capture)
         self.refresh_stats()
+        self.refresh_auto_controls()
 
     def apply_theme(self):
         self.setStyleSheet("""
@@ -59,11 +74,13 @@ class WordFinder(QWidget):
             QLineEdit, QComboBox { background:#242428; border:1px solid #393940; border-radius:10px; padding:8px; }
             QPushButton { background:#2D2D33; border:1px solid #3A3A42; border-radius:10px; padding:8px; font-weight:600; }
             QPushButton:hover { background:#3A3A42; }
+            QPushButton:checked { background:#275D42; border-color:#3A8A61; }
             QListWidget { background:#202024; border:1px solid #34343A; border-radius:12px; padding:5px; outline:none; }
             QListWidget::item { padding:10px; margin:2px; border-radius:8px; }
             QListWidget::item:hover { background:#303038; }
             QListWidget::item:selected { background:#5753D7; }
             QLabel#muted { color:#9A9AA6; font-size:11px; }
+            QLabel#autoStatus { color:#A7D9BE; font-size:12px; font-weight:600; }
         """)
 
     def build_ui(self):
@@ -83,6 +100,40 @@ class WordFinder(QWidget):
         top.addWidget(self.history_button)
         top.addWidget(self.settings_button)
         layout.addLayout(top)
+
+        auto_row = QHBoxLayout()
+        self.auto_button = QPushButton("Auto: OFF")
+        self.auto_button.setCheckable(True)
+
+        self.opponent_region_button = QPushButton("Zona rival")
+        self.requirement_region_button = QPushButton("Zona requisito")
+
+        auto_row.addWidget(self.auto_button, 1)
+        auto_row.addWidget(self.opponent_region_button)
+        auto_row.addWidget(self.requirement_region_button)
+        layout.addLayout(auto_row)
+
+        auto_options = QHBoxLayout()
+        self.auto_language_combo = QComboBox()
+        self.auto_language_combo.addItems(["english", "spanish", "both"])
+        self.auto_language_combo.setCurrentText(self.settings.get("auto_language", "spanish"))
+
+        self.difficulty_combo = QComboBox()
+        self.difficulty_combo.addItems(["easy", "normal", "hard"])
+        self.difficulty_combo.setCurrentText(self.settings.get("difficulty", "normal"))
+
+        auto_options.addWidget(QLabel("Idioma auto"))
+        auto_options.addWidget(self.auto_language_combo)
+        auto_options.addWidget(QLabel("Dificultad"))
+        auto_options.addWidget(self.difficulty_combo)
+        layout.addLayout(auto_options)
+
+        self.auto_status_label = QLabel(
+            "Configura las dos zonas y activa Auto cuando Roblox esté abierto."
+        )
+        self.auto_status_label.setObjectName("autoStatus")
+        self.auto_status_label.setWordWrap(True)
+        layout.addWidget(self.auto_status_label)
 
         self.input_box = QLineEdit()
         self.input_box.setPlaceholderText("Alt + Espacio para capturar, o escribe aquí…")
@@ -127,6 +178,16 @@ class WordFinder(QWidget):
         self.mode_combo.currentTextChanged.connect(self.quick_setting_changed)
         self.language_combo.currentTextChanged.connect(self.quick_setting_changed)
 
+        self.auto_button.toggled.connect(self.toggle_automatic_mode)
+        self.opponent_region_button.clicked.connect(
+            lambda: self.select_auto_region("auto_opponent_region")
+        )
+        self.requirement_region_button.clicked.connect(
+            lambda: self.select_auto_region("auto_requirement_region")
+        )
+        self.auto_language_combo.currentTextChanged.connect(self.auto_setting_changed)
+        self.difficulty_combo.currentTextChanged.connect(self.auto_setting_changed)
+
     def setup_numeric_shortcuts(self):
         self.number_shortcuts = []
         for number in range(1, 10):
@@ -145,7 +206,130 @@ class WordFinder(QWidget):
         self.settings["language"] = self.language_combo.currentText()
         save_settings(self.settings)
 
+    def auto_setting_changed(self):
+        self.settings["auto_language"] = self.auto_language_combo.currentText()
+        self.settings["difficulty"] = self.difficulty_combo.currentText()
+        save_settings(self.settings)
+        self.auto_engine.update_settings(self.settings)
+
+    def refresh_auto_controls(self):
+        has_opponent = bool(self.settings.get("auto_opponent_region"))
+        has_requirement = bool(self.settings.get("auto_requirement_region"))
+        self.opponent_region_button.setText(
+            "Zona rival ✓" if has_opponent else "Zona rival"
+        )
+        self.requirement_region_button.setText(
+            "Zona requisito ✓" if has_requirement else "Zona requisito"
+        )
+
+    def select_auto_region(self, key):
+        if self.auto_engine.active:
+            self.auto_button.setChecked(False)
+
+        self.hide()
+        QTimer.singleShot(120, lambda: self.open_region_selector(key))
+
+    def open_region_selector(self, key):
+        self.region_selector = RegionSelector()
+        self.region_selector.selected.connect(
+            lambda region, setting_key=key: self.region_selected(setting_key, region)
+        )
+        self.region_selector.cancelled.connect(self.region_selection_cancelled)
+        self.region_selector.show_selector()
+
+    def region_selected(self, key, region):
+        self.settings[key] = region
+        save_settings(self.settings)
+        self.auto_engine.update_settings(self.settings)
+        self.region_selector = None
+        self.refresh_auto_controls()
+        self.show_normal()
+
+        label = "palabra rival" if key == "auto_opponent_region" else "requisito"
+        self.auto_status_label.setText(f"Zona de {label} guardada.")
+
+    def region_selection_cancelled(self):
+        self.region_selector = None
+        self.show_normal()
+        self.auto_status_label.setText("Calibración cancelada.")
+
+    def toggle_automatic_mode(self, enabled):
+        if enabled:
+            if not self.settings.get("auto_opponent_region") or not self.settings.get(
+                "auto_requirement_region"
+            ):
+                self.auto_button.blockSignals(True)
+                self.auto_button.setChecked(False)
+                self.auto_button.blockSignals(False)
+                QMessageBox.information(
+                    self,
+                    "Falta calibración",
+                    "Selecciona primero la zona de la palabra rival y la zona del requisito.",
+                )
+                return
+
+            target = find_target_by_name("Roblox")
+            if target is None and self.last_target and "roblox" in target_name(self.last_target).lower():
+                target = self.last_target
+
+            if target is None:
+                self.auto_button.blockSignals(True)
+                self.auto_button.setChecked(False)
+                self.auto_button.blockSignals(False)
+                QMessageBox.warning(
+                    self,
+                    "Roblox no encontrado",
+                    "Abre Roblox antes de activar el modo automático.",
+                )
+                return
+
+            self.settings["automatic_mode_enabled"] = True
+            save_settings(self.settings)
+            self.auto_engine.update_settings(self.settings)
+            self.auto_engine.set_target(target)
+
+            try:
+                self.auto_engine.start()
+            except ValueError as exc:
+                self.auto_button.blockSignals(True)
+                self.auto_button.setChecked(False)
+                self.auto_button.blockSignals(False)
+                QMessageBox.warning(self, "Modo automático", str(exc))
+                return
+
+            self.auto_button.setText("Auto: ON")
+            self.auto_status_label.setText("Auto activo · vigilando Roblox")
+            self.hide()
+        else:
+            self.settings["automatic_mode_enabled"] = False
+            save_settings(self.settings)
+            self.auto_engine.stop()
+            self.auto_button.setText("Auto: OFF")
+
+    def on_auto_status(self, message):
+        self.auto_status_label.setText(message)
+
+    def on_auto_turn(self, opponent_word, requirement):
+        self.auto_status_label.setText(
+            f'Rival: "{opponent_word}" · requisito: "{requirement}"'
+        )
+
+    def on_auto_reply(self, word):
+        record_word(word)
+        self.refresh_stats()
+        self.auto_status_label.setText(f'Auto envió: "{word}"')
+
+    def on_auto_exhausted(self, requirement):
+        self.auto_status_label.setText(
+            f'No quedan respuestas válidas para "{requirement}".'
+        )
+        if self.settings.get("sound_feedback", True):
+            QApplication.beep()
+
     def start_capture(self, target=None):
+        if self.auto_engine.active:
+            return
+
         if target:
             self.last_target = target
             self.handle_session_target(target)
@@ -161,7 +345,9 @@ class WordFinder(QWidget):
         is_roblox = "roblox" in name.lower()
         previous_was_roblox = "roblox" in self.session_app_name.lower()
 
-        if is_roblox and not previous_was_roblox and self.settings.get("reset_on_new_session", True):
+        if is_roblox and not previous_was_roblox and self.settings.get(
+            "reset_on_new_session", True
+        ):
             self.new_session(True, show_message=False)
 
         self.session_app_name = name
@@ -202,9 +388,14 @@ class WordFinder(QWidget):
 
         self.input_box.setText(fragment)
         self.search(show_after=True)
-        confidence_text = {"high": "alta", "medium": "media", "low": "baja"}.get(confidence, confidence)
+        confidence_text = {
+            "high": "alta",
+            "medium": "media",
+            "low": "baja",
+        }.get(confidence, confidence)
         self.status_label.setText(
-            f'OCR: "{fragment}" · confianza {confidence_text} · {len(self.result_words)} opciones'
+            f'OCR: "{fragment}" · confianza {confidence_text} · '
+            f"{len(self.result_words)} opciones"
         )
 
     def pick_best_ocr_candidate(self, candidates):
@@ -321,7 +512,7 @@ class WordFinder(QWidget):
         animation.start()
 
     def show_normal(self):
-        self.resize(390, 460)
+        self.resize(420, 560)
         screen = QGuiApplication.primaryScreen().availableGeometry()
         self.move(screen.right() - self.width() - 14, screen.bottom() - self.height() - 14)
         self.show()
@@ -373,6 +564,7 @@ class WordFinder(QWidget):
         item = self.results.itemAt(position)
         if not item:
             return
+
         word = item.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         favorite_action = menu.addAction("★ Agregar/quitar favorito")
@@ -386,12 +578,16 @@ class WordFinder(QWidget):
         if dialog.exec():
             old_hotkey = self.settings.get("hotkey")
             old_autostart = self.settings.get("start_with_system", False)
+
             self.settings = dialog.values()
             save_settings(self.settings)
+            self.auto_engine.update_settings(self.settings)
 
             self.profile_combo.setCurrentText(self.settings["profile"])
             self.mode_combo.setCurrentText(self.settings["search_mode"])
             self.language_combo.setCurrentText(self.settings["language"])
+            self.auto_language_combo.setCurrentText(self.settings["auto_language"])
+            self.difficulty_combo.setCurrentText(self.settings["difficulty"])
 
             if old_autostart != self.settings.get("start_with_system", False):
                 try:
@@ -409,12 +605,17 @@ class WordFinder(QWidget):
             self.search()
 
     def new_session(self, clear_words=True, show_message=True):
+        if self.auto_engine.active:
+            self.auto_button.setChecked(False)
+
         if clear_words:
             clear_used()
+
         start_session()
         self.results.clear()
         self.result_words = []
         self.refresh_stats()
+
         if show_message:
             self.status_label.setText("Nueva partida iniciada. Palabras usadas reiniciadas.")
 
@@ -436,13 +637,14 @@ listener = None
 
 
 def on_activate():
-    if window:
+    if window and not window.auto_engine.active:
         target = get_foreground_target()
         window.capture_requested.emit(target)
 
 
 def restart_global_hotkey(hotkey_text=None):
     global listener
+
     if listener:
         listener.stop()
         listener = None
@@ -461,22 +663,32 @@ def restart_global_hotkey(hotkey_text=None):
 
 
 def create_tray(app):
-    tray = QSystemTrayIcon(app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), app)
+    tray = QSystemTrayIcon(
+        app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon),
+        app,
+    )
     tray.setToolTip("Word Helper")
 
     menu = QMenu()
     show_action = QAction("Abrir Word Helper", menu)
     capture_action = QAction("Capturar ahora", menu)
+    auto_action = QAction("Alternar modo automático", menu)
     session_action = QAction("Nueva partida", menu)
     quit_action = QAction("Salir", menu)
 
     show_action.triggered.connect(window.show_normal)
-    capture_action.triggered.connect(lambda: window.start_capture(get_foreground_target()))
+    capture_action.triggered.connect(
+        lambda: window.start_capture(get_foreground_target())
+    )
+    auto_action.triggered.connect(
+        lambda: window.auto_button.setChecked(not window.auto_button.isChecked())
+    )
     session_action.triggered.connect(lambda: window.new_session(True))
     quit_action.triggered.connect(app.quit)
 
     menu.addAction(show_action)
     menu.addAction(capture_action)
+    menu.addAction(auto_action)
     menu.addAction(session_action)
     menu.addSeparator()
     menu.addAction(quit_action)
