@@ -22,6 +22,15 @@ DEFAULT_SETTINGS = {
     "reset_on_new_session": True,
     "show_ocr_confidence": True,
     "smart_antirepeat": True,
+    "automatic_mode_enabled": False,
+    "auto_language": "spanish",
+    "difficulty": "normal",
+    "chain_letters": 2,
+    "auto_interval_ms": 700,
+    "auto_retry_ms": 1800,
+    "auto_type_delay": 0.08,
+    "auto_fallback_suffix": True,
+    "auto_region": None,
 }
 
 PROFILE_PRESETS = {
